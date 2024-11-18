@@ -1,0 +1,63 @@
+conf t
+
+hostname S-SPINE2
+
+interface ethernet 1/1-54
+no switchport
+no shut
+mtu 9216
+
+nv overlay evpn
+feature ospf
+feature bgp
+
+
+router ospf 100
+  router-id 222.222.222.222
+
+interface loopback0
+  ip address 222.222.222.222/32
+  ip router ospf 100 area 0.0.0.0
+  no shut
+
+interface Ethernet1/1
+  ip address 192.222.11.222/24
+  ip ospf network point-to-point
+  ip router ospf 100 area 0.0.0.0
+  no shutdown
+
+interface Ethernet1/2
+  ip address 192.222.22.222/24
+  ip ospf network point-to-point
+  ip router ospf 100 area 0.0.0.0
+  no shutdown
+
+interface Ethernet1/3
+  ip address 192.222.33.222/24
+  ip ospf network point-to-point
+  ip router ospf 100 area 0.0.0.0
+  no shutdown
+
+interface Ethernet1/4
+  ip address 192.222.44.222/24
+  ip ospf network point-to-point
+  ip router ospf 100 area 0.0.0.0
+  no shutdown
+
+
+---Control Plane MP-BGP EVPN---
+
+router bgp 65001
+  neighbor 1.1.1.1
+    remote-as 65001
+    update-source lo 0
+    address-family l2vpn evpn
+      send-community both
+      route-reflector-client
+
+  neighbor 2.2.2.2
+    remote-as 65001
+    update-source lo 0
+    address-family l2vpn evpn
+      send-community both
+      route-reflector-client

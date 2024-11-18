@@ -1,0 +1,697 @@
+conf t
+
+hostname LEAF1
+
+interface ethernet 1/1-54
+no switchport
+no shut
+mtu 9216
+
+---vPC---
+
+feature vpc
+
+interface mgmt 0
+    ip address 192.1.2.1/30
+    no shut
+
+vlan 100,200,300
+
+vpc domain 1
+    role priority 200
+    peer-gateway
+    peer-switch
+    ip arp synchronize
+    auto-recovery
+    peer-keepalive destination 192.1.2.2 source 192.1.2.1 vrf management
+
+
+feature lacp
+
+interface ethernet1/49-50
+    switchport
+    switchport mode trunk
+    switchport trunk allowed vlan 100,200,300
+    channel-group 1 mode active
+    no shutdown
+
+interface port-channel 1
+    vpc peer-link
+
+
+interface ethernet 1/1
+    switchport
+    switchport access vlan 100
+    channel-group 100 mode active
+    no shut
+
+interface port-channel 100
+    mtu 9216
+    vpc 100
+
+interface ethernet 1/2
+    switchport
+    switchport access vlan 200
+    channel-group 200 mode active
+    no shut
+
+interface port-channel 200
+    mtu 9216
+    vpc 200
+
+---VXLAN---
+
+nv overlay evpn
+feature ospf
+feature bgp
+feature interface-vlan
+feature vn-segment-vlan-based
+feature nv overlay
+
+
+router ospf 100
+  router-id 1.1.1.1
+
+interface lo 0
+  ip addr 1.1.1.1/32
+  ip router ospf 100 area 0
+  no shut
+
+
+interface eth 1/11
+  ip addr 192.11.1.1/24
+  ip ospf network point-to-point
+  ip router ospf 100 area 0
+  no shut
+
+
+interface eth 1/12
+  ip addr 192.22.1.1/24
+  ip ospf network point-to-point
+  ip router ospf 100 area 0
+  no shut
+
+
+---Control Plane MP-BGP EVPN---
+
+router bgp 65001
+  neighbor 111.111.111.111
+    remote-as 65001
+    update-source lo 0
+    address-family l2vpn evpn
+      send-community both
+
+  neighbor 222.222.222.222
+    remote-as 65001
+    update-source lo 0
+    address-family l2vpn evpn
+      send-community both
+
+
+---Overlay VXLAN---
+
+
+vlan 100
+  vn-segment 10100
+
+vlan 1100
+  vn-segment 11000
+
+vrf context vxlan-11000
+  vni 11000
+  rd auto
+  address-family ipv4 unicast
+    route-target both auto
+    route-target both auto evpn
+
+fabric forwarding anycast-gateway-mac 0000.2222.3333
+
+interface vlan 100
+  mtu 9216
+  vrf member vxlan-11000
+  ip addr 172.16.100.254/24
+  fabric forwarding mode anycast-gateway
+  no shut
+
+interface vlan 1100
+  mtu 9216
+  vrf member vxlan-11000
+  ip forward
+  no shut
+
+evpn
+  vni 10100 l2
+  rd auto
+  route-target both auto
+
+# vPC+VVXLANの場合、secondary IPを設定しないとvPC downlinkとnveがUpしない
+interface lo 1
+  ip address 101.101.101.101/32
+  ip address 3.3.3.3/32 secondary
+  ip router ospf 100 area 0
+  no shut
+
+
+interface nve 1
+  source-interface lo 1
+  host-reachability protocol bgp
+  member vni 10100
+    ingress-replication protocol bgp
+  member vni 11000 associate-vrf
+  no shut
+
+
+vlan 200
+    vn-segment 10200
+
+interface vlan 200
+  mtu 9216
+  vrf member vxlan-11000
+  ip addr 172.16.200.254/24
+  fabric forwarding mode anycast-gateway
+  no shut
+
+evpn
+  vni 10200 l2
+  rd auto
+  route-target both auto
+
+
+interface nve 1
+  source-interface lo 1
+  host-reachability protocol bgp
+  member vni 10200
+    ingress-replication protocol bgp
+  no shut
+
+
+
+
+---vPC Fabric Peering---
+https://community.cisco.com/t5/tkb-%E3%83%87%E3%83%BC%E3%82%BF%E3%82%BB%E3%83%B3%E3%82%BF%E3%83%BC-%E3%83%89%E3%82%AD%E3%83%A5%E3%83%A1%E3%83%B3%E3%83%88/cisco-nexus-%E3%82%B7%E3%83%AA%E3%83%BC%E3%82%BA-vxlan-evpn-vpc-fabric-peering-part-1-2/ta-p/4262233
+
+
+conf t
+
+interface ethernet 1/11 
+    port-type fabric
+
+interface ethernet 1/12 
+    port-type fabric
+
+
+default interface Ethernet1/49
+
+default interface Ethernet1/50
+
+no interface port-channel1
+
+no vpc domain 1
+
+router bgp 65001
+  address-family l2vpn evpn
+    advertise-pip
+
+interface nve1
+  advertise virtual-rmac
+
+vpc domain 1
+    role priority 200
+    peer-gateway
+    peer-switch
+    ip arp synchronize
+    auto-recovery
+    peer-keepalive destination 192.1.2.2 source 192.1.2.1 vrf management
+    virtual peer-link destination 2.2.2.2 source 1.1.1.1 
+
+interface port-channel1
+  switchport
+  switchport mode trunk
+  spanning-tree port type network
+  vpc peer-link
+
+
+
+
+---
+
+LEAF1(config-if)# sh run
+
+!Command: show running-config
+!Running configuration last done at: Sat Jun 14 01:29:54 2025
+!Time: Sat Jun 14 01:33:18 2025
+
+version 10.4(2) Bios:version  
+hostname LEAF1
+vdc LEAF1 id 1
+  limit-resource vlan minimum 16 maximum 4094
+  limit-resource vrf minimum 2 maximum 4097
+  limit-resource port-channel minimum 0 maximum 511
+  limit-resource m4route-mem minimum 58 maximum 58
+  limit-resource m6route-mem minimum 8 maximum 8
+
+cfs ipv4 distribute
+nv overlay evpn
+feature ospf
+feature bgp
+feature interface-vlan
+feature vn-segment-vlan-based
+feature lacp
+feature vpc
+feature nv overlay
+
+no password strength-check
+username admin password 5 $5$MFJABE$zTG4BDK0sckS7ioXA/iKsQLZ8sAjPo7YfsB0rbwEvBC 
+ role network-admin
+username cisco password 5 $5$OHGNPJ$c1sQ4o4f769rOID/8UMovtjezH3aiUFtE7I1I63XkJ2 
+ role network-admin
+username cisco passphrase  lifetime 99999 warntime 14 gracetime 3
+ip domain-lookup
+snmp-server user admin network-admin auth md5 482FA9A7C7134411609DB87173C926CC37
+AC priv aes-128 481BDBDBBC747F306B8CF72A25CC2DC130F3 localizedV2key
+snmp-server user cisco network-admin auth md5 01578C83F46A2A770381E925399E12CC26
+A5 priv aes-128 2145BFB1860E6D216CBCB86124D1089B36F9 localizedV2key
+rmon event 1 log trap public description FATAL(1) owner PMON@FATAL
+rmon event 2 log trap public description CRITICAL(2) owner PMON@CRITICAL
+rmon event 3 log trap public description ERROR(3) owner PMON@ERROR
+rmon event 4 log trap public description WARNING(4) owner PMON@WARNING
+rmon event 5 log trap public description INFORMATION(5) owner PMON@INFO
+
+fabric forwarding anycast-gateway-mac 0000.2222.3333
+vlan 1,100,200,300,1100
+vlan 100
+  vn-segment 10100
+vlan 200
+  vn-segment 10200
+vlan 1100
+  vn-segment 11000
+
+vrf context management
+vrf context vxlan-11000
+  vni 11000
+  rd auto
+  address-family ipv4 unicast
+    route-target both auto
+    route-target both auto evpn
+vpc domain 1
+  peer-switch
+  role priority 200
+  peer-keepalive destination 192.1.2.2 source 192.1.2.1
+  virtual peer-link destination 2.2.2.2 source 1.1.1.1 dscp 56
+  peer-gateway
+  auto-recovery
+  ip arp synchronize
+
+interface Vlan1
+  no ip redirects
+  no ipv6 redirects
+
+interface Vlan100
+  no shutdown
+  mtu 9216
+  vrf member vxlan-11000
+  no ip redirects
+  ip address 172.16.100.254/24
+  no ipv6 redirects
+  fabric forwarding mode anycast-gateway
+
+interface Vlan200
+  no shutdown
+  mtu 9216
+  vrf member vxlan-11000
+  no ip redirects
+  ip address 172.16.200.254/24
+  no ipv6 redirects
+  fabric forwarding mode anycast-gateway
+
+interface Vlan1100
+  no shutdown
+  mtu 9216
+  vrf member vxlan-11000
+  no ip redirects
+  ip forward
+  no ipv6 redirects
+
+interface port-channel1
+  switchport mode trunk
+  spanning-tree port type network
+  vpc peer-link
+
+interface port-channel100
+  switchport access vlan 100
+  mtu 9216
+  vpc 100
+
+interface port-channel200
+  switchport access vlan 200
+  mtu 9216
+  vpc 200
+
+interface nve1
+  no shutdown
+  host-reachability protocol bgp
+  advertise virtual-rmac
+  source-interface loopback1
+  member vni 10100
+    ingress-replication protocol bgp
+  member vni 10200
+    ingress-replication protocol bgp
+  member vni 11000 associate-vrf
+
+interface Ethernet1/1
+  switchport access vlan 100
+  mtu 9216
+  channel-group 100 mode active
+
+interface Ethernet1/2
+  switchport access vlan 200
+  mtu 9216
+  channel-group 200 mode active
+
+interface Ethernet1/3
+  no switchport
+  mtu 9216
+  no shutdown
+
+interface Ethernet1/4
+  no switchport
+  mtu 9216
+  no shutdown
+
+interface Ethernet1/5
+  no switchport
+  mtu 9216
+  no shutdown
+
+interface Ethernet1/6
+  no switchport
+  mtu 9216
+  no shutdown
+
+interface Ethernet1/7
+  no switchport
+  mtu 9216
+  no shutdown
+
+interface Ethernet1/8
+  no switchport
+  mtu 9216
+  no shutdown
+
+interface Ethernet1/9
+  no switchport
+  mtu 9216
+  no shutdown
+
+interface Ethernet1/10
+  no switchport
+  mtu 9216
+  no shutdown
+
+interface Ethernet1/11
+  no switchport
+  mtu 9216
+  port-type fabric
+  ip address 192.11.1.1/24
+  ip ospf network point-to-point
+  ip router ospf 100 area 0.0.0.0
+  no shutdown
+
+interface Ethernet1/12
+  no switchport
+  mtu 9216
+  port-type fabric
+  ip address 192.22.1.1/24
+  ip ospf network point-to-point
+  ip router ospf 100 area 0.0.0.0
+  no shutdown
+
+interface Ethernet1/13
+  no switchport
+  mtu 9216
+  no shutdown
+
+interface Ethernet1/14
+  no switchport
+  mtu 9216
+  no shutdown
+
+interface Ethernet1/15
+  no switchport
+  mtu 9216
+  no shutdown
+
+interface Ethernet1/16
+  no switchport
+  mtu 9216
+  no shutdown
+
+interface Ethernet1/17
+  no switchport
+  mtu 9216
+  no shutdown
+
+interface Ethernet1/18
+  no switchport
+  mtu 9216
+  no shutdown
+
+interface Ethernet1/19
+  no switchport
+  mtu 9216
+  no shutdown
+
+interface Ethernet1/20
+  no switchport
+  mtu 9216
+  no shutdown
+
+interface Ethernet1/21
+  no switchport
+  mtu 9216
+  no shutdown
+
+interface Ethernet1/22
+  no switchport
+  mtu 9216
+  no shutdown
+
+interface Ethernet1/23
+  no switchport
+  mtu 9216
+  no shutdown
+
+interface Ethernet1/24
+  no switchport
+  mtu 9216
+  no shutdown
+
+interface Ethernet1/25
+  no switchport
+  mtu 9216
+  no shutdown
+
+interface Ethernet1/26
+  no switchport
+  mtu 9216
+  no shutdown
+
+interface Ethernet1/27
+  no switchport
+  mtu 9216
+  no shutdown
+
+interface Ethernet1/28
+  no switchport
+  mtu 9216
+  no shutdown
+
+interface Ethernet1/29
+  no switchport
+  mtu 9216
+  no shutdown
+
+interface Ethernet1/30
+  no switchport
+  mtu 9216
+  no shutdown
+
+interface Ethernet1/31
+  no switchport
+  mtu 9216
+  no shutdown
+
+interface Ethernet1/32
+  no switchport
+  mtu 9216
+  no shutdown
+
+interface Ethernet1/33
+  no switchport
+  mtu 9216
+  no shutdown
+
+interface Ethernet1/34
+  no switchport
+  mtu 9216
+  no shutdown
+
+interface Ethernet1/35
+  no switchport
+  mtu 9216
+  no shutdown
+
+interface Ethernet1/36
+  no switchport
+  mtu 9216
+  no shutdown
+
+interface Ethernet1/37
+  no switchport
+  mtu 9216
+  no shutdown
+
+interface Ethernet1/38
+  no switchport
+  mtu 9216
+  no shutdown
+
+interface Ethernet1/39
+  no switchport
+  mtu 9216
+  no shutdown
+
+interface Ethernet1/40
+  no switchport
+  mtu 9216
+  no shutdown
+
+interface Ethernet1/41
+  no switchport
+  mtu 9216
+  no shutdown
+
+interface Ethernet1/42
+  no switchport
+  mtu 9216
+  no shutdown
+
+interface Ethernet1/43
+  no switchport
+  mtu 9216
+  no shutdown
+
+interface Ethernet1/44
+  no switchport
+  mtu 9216
+  no shutdown
+
+interface Ethernet1/45
+  no switchport
+  mtu 9216
+  no shutdown
+
+interface Ethernet1/46
+  no switchport
+  mtu 9216
+  no shutdown
+
+interface Ethernet1/47
+  no switchport
+  mtu 9216
+  no shutdown
+
+interface Ethernet1/48
+  no switchport
+  mtu 9216
+  no shutdown
+
+interface Ethernet1/49
+
+interface Ethernet1/50
+
+interface Ethernet1/51
+  no switchport
+  mtu 9216
+  no shutdown
+
+interface Ethernet1/52
+  no switchport
+  mtu 9216
+  no shutdown
+
+interface Ethernet1/53
+  no switchport
+  mtu 9216
+  no shutdown
+
+interface Ethernet1/54
+  no switchport
+  mtu 9216
+  no shutdown
+
+interface Ethernet1/55
+
+interface Ethernet1/56
+
+interface Ethernet1/57
+
+interface Ethernet1/58
+
+interface Ethernet1/59
+
+interface Ethernet1/60
+
+interface Ethernet1/61
+
+interface Ethernet1/62
+
+interface Ethernet1/63
+
+interface Ethernet1/64
+
+interface mgmt0
+  vrf member management
+  ip address 192.1.2.1/30
+
+interface loopback0
+  ip address 1.1.1.1/32
+  ip router ospf 100 area 0.0.0.0
+
+interface loopback1
+  ip address 101.101.101.101/32
+  ip address 3.3.3.3/32 secondary
+  ip router ospf 100 area 0.0.0.0
+icam monitor scale
+
+line console
+line vty
+router ospf 100
+  router-id 1.1.1.1
+router bgp 65001
+  address-family l2vpn evpn
+    advertise-pip
+  neighbor 111.111.111.111
+    remote-as 65001
+    update-source loopback0
+    address-family l2vpn evpn
+      send-community
+      send-community extended
+  neighbor 222.222.222.222
+    remote-as 65001
+    update-source loopback0
+    address-family l2vpn evpn
+      send-community
+      send-community extended
+evpn
+  vni 10100 l2
+    rd auto
+    route-target import auto
+    route-target export auto
+  vni 10200 l2
+    rd auto
+    route-target import auto
+    route-target export auto
+event manager applet BOOTCONFIG
+  event syslog pattern "Configured from vty"
+  action 1.0 cli python bootflash:set_boot.py

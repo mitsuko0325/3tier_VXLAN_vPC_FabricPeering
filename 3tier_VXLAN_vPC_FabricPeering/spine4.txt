@@ -1,0 +1,39 @@
+conf t
+
+hostname SPINE4
+
+interface ethernet 1/1-54
+no switchport
+no shut
+mtu 9216
+
+nv overlay evpn
+feature ospf
+feature bgp
+
+
+router ospf 100
+  router-id 44.44.44.44
+
+interface loopback0
+  ip address 44.44.44.44/32
+  ip router ospf 100 area 0.0.0.0
+  no shut
+
+interface Ethernet1/1
+  ip address 192.44.2.44/24
+  ip ospf network point-to-point
+  ip router ospf 100 area 0.0.0.0
+  no shutdown
+
+interface Ethernet1/11
+  ip address 192.111.44.44/24
+  ip ospf network point-to-point
+  ip router ospf 100 area 0.0.0.0
+  no shutdown
+
+interface Ethernet1/12
+  ip address 192.222.44.44/24
+  ip ospf network point-to-point
+  ip router ospf 100 area 0.0.0.0
+  no shutdown

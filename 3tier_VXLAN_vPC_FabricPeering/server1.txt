@@ -1,0 +1,18 @@
+interface port-channel100
+  no switchport
+  mtu 9216
+  ip address 172.16.100.1/24
+
+interface Ethernet1/11
+  no switchport
+  mtu 9216
+  channel-group 100 mode active
+  no shutdown
+
+interface Ethernet1/12
+  no switchport
+  mtu 9216
+  channel-group 100 mode active
+  no shutdown
+
+ip route 172.16.200.0/24 172.16.100.254
